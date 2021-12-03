@@ -1,7 +1,7 @@
 .idea/
-*/out*/
-*/ticketingsystem/*.class
-*/history
-*/trace
+out*/
+*.class
+history
+trace
 *.iml
-*/Readme
+Readme
