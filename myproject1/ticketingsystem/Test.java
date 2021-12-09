@@ -111,6 +111,8 @@ public class Test {
             System.out.println(String.format(
                     "ThreadNum: %d BuyAvgTime(ms): %.5f RefundAvgTime(ms): %.5f InquiryAvgTime(ms): %.5f ThroughOut(op/ms): %d",
                     threadNums[p], buyAvgTime, refundAvgTime, inquiryAvgTime, t));
+            System.out.println("Failure Rate : " + 100 * tds.getFailedBuying() / (float)(bTotal + iTotal) + " %");
+            System.out.println("Cache Hitting Rate : " + 100 * tds.getCacheBenefit() / (float)(bTotal + iTotal) + " %");
             clear();
         }
     }
