@@ -27,6 +27,24 @@ public class TicketingDS implements TicketingSystem {
     volatile String[] sold_name;
     static AtomicIntegerArray sold_hash;
 
+    long[][] thread_tid;
+
+    /* Get a number of TIDs for a thread every time to avoid competition */
+
+    private long getIdLocal () {
+
+        /* Group by the last 7 bits (128 groups in all) */
+
+        int thread_id = (int)(Thread.currentThread().getId()) & 0x7f;
+
+        /* Allocate 256 more TID if the former have been used up */
+
+        if ((thread_tid[thread_id][0] & 0x7f) == 0)
+            thread_tid[thread_id][0] = tid.getAndAdd(128);
+
+        return thread_tid[thread_id][0]++;
+    }
+
     /* Get a compressed record of sold ticket to reduce memory usage */
 
     private int getHash(Ticket t) {
@@ -37,7 +55,7 @@ public class TicketingDS implements TicketingSystem {
     /* Generate a new Ticket object */
 
     private Ticket newTicket(String passenger, int route, int index, int departure, int arrival) {
-        long id = tid.getAndIncrement();
+        long id = getIdLocal();
         int coach = index / seat_num + 1;
         int seat = index % seat_num + 1;
         Ticket t = new Ticket();
@@ -80,6 +98,11 @@ public class TicketingDS implements TicketingSystem {
         for (int i = 0; i < max_tid; i++) {
             sold_name[i] = null;
             sold_hash.set(i, 0xffffffff);
+        }
+
+        thread_tid = new long[128][8];
+        for (int i = 0; i < 128; i++) {
+            thread_tid[i][0] = 0;
         }
     }
 

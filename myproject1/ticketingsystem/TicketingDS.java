@@ -18,7 +18,7 @@ public class TicketingDS implements TicketingSystem {
 
     /* Memory Padding for Better Cache Access */
 
-    private static final int padding = 0;
+    private static final int padding = 4;
 
     /* Invalid intervals stored in bitmap format */
 
@@ -33,11 +33,11 @@ public class TicketingDS implements TicketingSystem {
 
     /* Array to record the local TID for every thread */
 
-    long[] thread_tid;
+    long[][] thread_tid;
 
     /* Cache to record a minimun interval with no available tickets */
 
-    AtomicLongArray empty_cache;
+    AtomicLongArray empty_cache[];
 
     /* Time-stamp for cache updating */
 
@@ -59,16 +59,17 @@ public class TicketingDS implements TicketingSystem {
     /* Initialize the cache structure */
 
     private void initCache () {
-        empty_cache = new AtomicLongArray(route_num);
+        empty_cache = new AtomicLongArray[route_num];
         for (int i = 0; i < route_num; i++) {
-            empty_cache.set(i, 0x00000000ffffffffL);
+            empty_cache[i] = new AtomicLongArray(8);
+            empty_cache[i].set(0, 0x00000000ffffffffL);
         }
     }
 
     /* Return True if the record in cache is a subset of the interval to search */
 
     private boolean readCache (int index, int interval) {
-        int empty_interval = (int) (empty_cache.get(index) & 0xffffffffL);
+        int empty_interval = (int) (empty_cache[index].get(0) & 0xffffffffL);
         if ((empty_interval & interval) == empty_interval) benefit.getAndIncrement();
         return (empty_interval & interval) == empty_interval;
     }
@@ -76,23 +77,25 @@ public class TicketingDS implements TicketingSystem {
     /* Update a more precise range for cache if possible */
 
     private boolean updateCache (int index, int interval, long stamp) {
-        long cache_info = empty_cache.get(index);
+        AtomicLongArray cache = empty_cache[index];
+        long cache_info = cache.get(0);
         int old_interval = (int) (cache_info & 0x00000000ffffffffL);
         long old_stamp = cache_info >>> 32;
-        if ((old_interval & interval) != interval || stamp <= old_stamp) return true;
+        if (Integer.bitCount(old_interval) <= Integer.bitCount(interval) || stamp <= old_stamp) return true;
         long new_info = stamp << 32 | (long) interval;
-        return empty_cache.compareAndSet(index, cache_info, new_info);
+        return cache.compareAndSet(0, cache_info, new_info);
     }
 
     /* Invalidate the cache if a refunded interval intersects with the recorded */
 
     private void flushCache (int index, int interval) {
-        long cache_info = empty_cache.get(index);
+        AtomicLongArray cache = empty_cache[index];
+        long cache_info = cache.get(0);
         int old_interval = (int) (cache_info & 0x00000000ffffffffL);
         if ((old_interval & interval) != 0) {
             long new_stamp = action.incrementAndGet();
             long new_info = new_stamp << 32 | 0x00000000ffffffffL;
-            empty_cache.set(index, new_info);
+            cache.set(0, new_info);
         }
     }
 
@@ -105,13 +108,14 @@ public class TicketingDS implements TicketingSystem {
     /* Strict version of flushing. Keep trying until reset the record with a newest time-stamp */
 
     private void flushCacheStrict (int index, int interval) {
+        AtomicLongArray cache = empty_cache[index];
         while (true) {
-            long cache_info = empty_cache.get(index);
+            long cache_info = cache.get(0);
             int old_interval = (int) (cache_info & 0x00000000ffffffffL);
             if ((old_interval & interval) == 0) return;
             long new_stamp = action.incrementAndGet();
             long new_info = new_stamp << 32 | 0x00000000ffffffffL;
-            if (empty_cache.compareAndSet(index, cache_info, new_info)) return;
+            if (cache.compareAndSet(0, cache_info, new_info)) return;
         }
     }
 
@@ -125,16 +129,16 @@ public class TicketingDS implements TicketingSystem {
 
     private long getIdLocal () {
 
-        /* Group by the last 6 bits (128 groups in all) */
+        /* Group by the last 7 bits (128 groups in all) */
 
-        int thread_id = (int)(Thread.currentThread().getId()) & 0x3f;
+        int thread_id = (int)(Thread.currentThread().getId()) & 0x7f;
 
         /* Allocate 256 more TID if the former have been used up */
 
-        if ((thread_tid[thread_id] & 0xff) == 0)
-            thread_tid[thread_id] = tid.getAndAdd(256);
+        if ((thread_tid[thread_id][0] & 0x7f) == 0)
+            thread_tid[thread_id][0] = tid.getAndAdd(128);
 
-        return thread_tid[thread_id]++;
+        return thread_tid[thread_id][0]++;
     }
 
     /* Get a compressed record of sold ticket to reduce memory usage */
@@ -147,7 +151,7 @@ public class TicketingDS implements TicketingSystem {
     /* Generate a new Ticket object */
 
     private Ticket newTicket(String passenger, int route, int index, int departure, int arrival) {
-        long id = getId();
+        long id = getIdLocal();
         int coach = index / seat_num + 1;
         int seat = index % seat_num + 1;
         Ticket t = new Ticket();
@@ -184,9 +188,9 @@ public class TicketingDS implements TicketingSystem {
             for (int j = 0; j < length; j++)
                 seat_record[i].set(j, 0);
         }
-        thread_tid = new long[64];
-        for (int i = 0; i < 64; i++) {
-            thread_tid[i] = 0;
+        thread_tid = new long[128][8];
+        for (int i = 0; i < 128; i++) {
+            thread_tid[i][0] = 0;
         }
         int max_tid = thread_num * 120000;
         sold_hash = new AtomicIntegerArray(max_tid);

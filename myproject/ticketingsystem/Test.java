@@ -32,7 +32,7 @@ public class Test {
     }
 
     public static void main(String[] args) throws InterruptedException {
-        final int[] threadNums = { 64};
+        final int[] threadNums = {64};
         int p;
         for (p = 0; p < threadNums.length; ++p) {
             final TicketingDS tds = new TicketingDS(ROUTE_NUM, COACH_NUM, SEAT_NUM, STATION_NUM, threadNums[p]);
